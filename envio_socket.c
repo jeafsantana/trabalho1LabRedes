@@ -8,10 +8,13 @@
 #include <string.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/ioctl.h>
 #include <linux/if_ether.h>
 #include <netpacket/packet.h>
 #include <net/ethernet.h>
 #include <netinet/ether.h>
+//#include <linux/if_packet.h>
+#include <net/if.h> 
 
 #define ETHERTYPE_LEN 2
 #define MAC_ADDR_LEN 6
@@ -41,18 +44,26 @@ typedef struct ip{
     unsigned char ttl; 
     unsigned char protocol; 
     unsigned short int checksum; 
-    unsigned int ip_src; 
-    unsigned int ip_dst;
+    unsigned char ip_src[4]; 
+    unsigned char ip_dst[4];
     struct udp pacote_udp; 
 };
 
-int main()
+int main(int argc, char* argv[])
 {
   int sockFd = 0, retValue = 0;
   char buffer[BUFFER_LEN], dummyBuf[50];
   struct sockaddr_ll destAddr;
   short int etherTypeT = htons(0x8200);
   struct ifreq if_mac;
+
+  if(argc < 2){
+    printf("Usar como: %s ip porta", argv[0]);
+    exit(0);
+  }
+
+  char* ipOrigem = argv[1];
+  char* porta = argv[2];
 
   /* Configura MAC Origem e Destino */
   MacAddress localMac = {0x00, 0x0B, 0xCD, 0xA8, 0x6D, 0x91};
@@ -73,12 +84,18 @@ int main()
   destAddr.sll_ifindex = 2;  /* indice da interface pela qual os pacotes serao enviados. Eh necessário conferir este valor. */
   memcpy(&(destAddr.sll_addr), destMac, MAC_ADDR_LEN);
 
-    memset(&if_mac, 0, sizeof (struct ifreq));
-	strncpy(if_mac.ifr_name, ifname, IFNAMSIZ - 1);
-	if (ioctl(fd, SIOCGIFHWADDR, &if_mac) < 0) {
+  printf("Chegou 1");
+
+    memset(&if_mac, 0, sizeof(struct ifreq));
+    char ifname[IFNAMSIZ];
+    strcpy(ifname, "enp4s0");
+    strcpy(if_mac.ifr_name, ifname);
+	if (ioctl(sockFd, SIOCGIFHWADDR, &if_mac) < 0) {
 		perror("SIOCGIFHWADDR");
 		exit(1);
 	}
+
+  printf("Chegou 1");
 
   int frameLen = 0;
 
@@ -90,8 +107,11 @@ int main()
   memcpy((buffer+frameLen), &(etherTypeT), sizeof(etherTypeT));
   frameLen += sizeof(short int);
   
+  printf("Chegou 2");
+
   struct udp pacote_udp;
   struct ip pacote_ip;
+
   pacote_ip.versao = 4;
   pacote_ip.ihl = 5;
   pacote_ip.typeOfService = 0;
@@ -100,10 +120,28 @@ int main()
   pacote_ip.offset = 0;
   pacote_ip.ttl = 255;
   pacote_ip.protocol = 0x11;
+  pacote_ip.checksum = 0;
+  pacote_ip.ip_src[0] = atoi(ipOrigem[0]);
+  pacote_ip.ip_src[1] = atoi(ipOrigem[2]);
+  pacote_ip.ip_src[2] = atoi(ipOrigem[4]);
+  pacote_ip.ip_src[3] = atoi(ipOrigem[6]);
+  pacote_ip.ip_dst[0] = atoi(ipOrigem[0]);
+  pacote_ip.ip_dst[1] = atoi(ipOrigem[2]);
+  pacote_ip.ip_dst[2] = atoi(ipOrigem[4]);
+  pacote_ip.ip_dst[3] = atoi(ipOrigem[6]);
+
+  pacote_udp.sourcePort = atoi(porta);
+  pacote_udp.destinationPort = atoi(porta);
+  pacote_udp.checksum = 0;
+  char* aux = "Teste";
+  strcpy(pacote_udp.dados, aux);
+  pacote_udp.length = sizeof(pacote_udp);
+  
+  memcpy(buffer+frameLen, &pacote_ip, sizeof(pacote_ip));
 
   while(1) {
     /* Envia pacotes de 64 bytes */
-    if((retValue = sendto(sockFd, buffer, 64, 0, (struct sockaddr *)&(destAddr), sizeof(struct sockaddr_ll))) < 0) {
+    if((retValue = sendto(sockFd, buffer, sizeof(pacote_ip) + frameLen, 0, (struct sockaddr *)&(destAddr), sizeof(struct sockaddr_ll))) < 0) {
        printf("ERROR! sendto() \n");
        exit(1);
     }
